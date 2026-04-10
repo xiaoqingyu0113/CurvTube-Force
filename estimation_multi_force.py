@@ -208,17 +208,20 @@ def _plot_results(
     curvature_axis.set_title("Experimental vs. Model Curvatures")
 
     original_shape = load_experiment_shape(dataset_dir, dataset)
-    ground_truth_locations, _ground_truth_force_vectors = load_experiment_force_vectors(dataset_dir, dataset)
+    ground_truth_locations, ground_truth_force_vectors = load_experiment_force_vectors(dataset_dir, dataset)
     ground_truth_locations = ground_truth_locations + bias
 
     estimated = np.asarray(estimated_forces, dtype=float).reshape(-1, 3)
     estimated = estimated[np.argsort(estimated[:, 0])]
     estimated_force_locations = estimated[:, 0]
     estimated_force_vectors = np.column_stack((estimated[:, 1], estimated[:, 2], np.zeros(len(estimated))))
+    estimated_force_magnitudes = np.linalg.norm(estimated_force_vectors, axis=1)
+    ground_truth_force_magnitudes = np.linalg.norm(ground_truth_force_vectors, axis=1)
 
     ground_truth_force_points = _interpolate_shape_points(original_shape, ground_truth_locations)
     estimated_force_points = _interpolate_shape_points(original_shape, estimated_force_locations)
-    force_scale = _compute_force_scale(original_shape, estimated_force_vectors)
+    ground_truth_marker_sizes = _compute_marker_sizes(ground_truth_force_magnitudes)
+    estimated_marker_sizes = _compute_marker_sizes(estimated_force_magnitudes)
 
     shape_figure = plt.figure()
     shape_axis = shape_figure.add_subplot(111, projection="3d")
@@ -229,40 +232,32 @@ def _plot_results(
         color="tab:blue",
         linewidth=2.0,
     )
-    # Force sensor and FBG center frames are not calibrated to each other,
-    # so ground-truth force directions are intentionally not plotted.
+    # Force directions are intentionally not plotted. The force sensor and FBG
+    # center frames are not calibrated, and the estimated directions are also
+    # not sufficiently aligned. Marker size encodes force magnitude instead.
     if ground_truth_force_points.size:
         shape_axis.scatter(
             ground_truth_force_points[:, 0],
             ground_truth_force_points[:, 1],
             ground_truth_force_points[:, 2],
             color="tab:green",
-            s=35,
+            s=ground_truth_marker_sizes,
+            alpha=0.75,
         )
     if estimated_force_points.size:
-        shape_axis.quiver(
-            estimated_force_points[:, 0],
-            estimated_force_points[:, 1],
-            estimated_force_points[:, 2],
-            estimated_force_vectors[:, 0],
-            estimated_force_vectors[:, 1],
-            estimated_force_vectors[:, 2],
-            length=force_scale,
-            normalize=False,
-            color="tab:red",
-        )
         shape_axis.scatter(
             estimated_force_points[:, 0],
             estimated_force_points[:, 1],
             estimated_force_points[:, 2],
             color="tab:red",
-            s=30,
+            s=estimated_marker_sizes,
+            alpha=0.75,
         )
 
     shape_axis.set_xlabel("X (mm)")
     shape_axis.set_ylabel("Y (mm)")
     shape_axis.set_zlabel("Z (mm)")
-    shape_axis.set_title("Original 3D Shape with Ground Truth Locations and Estimated Forces")
+    shape_axis.set_title("Original 3D Shape with Force Locations and Magnitudes")
     shape_axis.legend(
         handles=[
             Line2D([0], [0], color="tab:blue", linewidth=2.0, label="Original Shape"),
@@ -273,9 +268,17 @@ def _plot_results(
                 linestyle="None",
                 color="tab:green",
                 markersize=7,
-                label="Ground Truth Location",
+                label="Ground Truth Magnitude",
             ),
-            Line2D([0], [0], color="tab:red", linewidth=2.0, label="Estimated Force"),
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="None",
+                color="tab:red",
+                markersize=7,
+                label="Estimated Magnitude",
+            ),
         ]
     )
     _set_axes_equal_3d(
@@ -283,7 +286,6 @@ def _plot_results(
         original_shape,
         ground_truth_force_points,
         estimated_force_points,
-        estimated_force_points + estimated_force_vectors * force_scale,
     )
     plt.show()
 
@@ -305,21 +307,22 @@ def _interpolate_shape_points(shape: np.ndarray, positions: np.ndarray) -> np.nd
     )
 
 
-def _compute_force_scale(shape: np.ndarray, *force_vectors: np.ndarray) -> float:
-    shape = np.asarray(shape, dtype=float)
-    valid_vectors = [np.asarray(v, dtype=float).reshape(-1, 3) for v in force_vectors if np.asarray(v).size]
-    if not valid_vectors:
-        return 1.0
+def _compute_marker_sizes(
+    magnitudes: np.ndarray,
+    min_size: float = 30.0,
+    max_size: float = 100.0,
+) -> np.ndarray:
+    magnitudes = np.asarray(magnitudes, dtype=float).reshape(-1)
+    if magnitudes.size == 0:
+        return np.zeros(0, dtype=float)
 
-    stacked_vectors = np.vstack(valid_vectors)
-    max_force_norm = float(np.max(np.linalg.norm(stacked_vectors, axis=1)))
-    if max_force_norm <= 0.0:
-        return 1.0
+    max_magnitude = float(np.max(magnitudes))
+    min_magnitude = float(np.min(magnitudes))
+    if max_magnitude <= 0.0 or np.isclose(max_magnitude, min_magnitude):
+        return np.full(magnitudes.shape, (min_size + max_size) / 2.0, dtype=float)
 
-    shape_extent = float(np.max(np.ptp(shape, axis=0)))
-    if shape_extent <= 0.0:
-        shape_extent = 1.0
-    return 0.15 * shape_extent / max_force_norm
+    normalized = (magnitudes - min_magnitude) / (max_magnitude - min_magnitude)
+    return min_size + normalized * (max_size - min_size)
 
 
 def _set_axes_equal_3d(ax, *point_sets: np.ndarray) -> None:

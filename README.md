@@ -46,10 +46,10 @@ Case prefixes follow the original experiment naming:
 - If `--plot` is enabled, the script shows:
   - curvature comparison
   - the original measured 3D shape
-  - ground-truth force locations as markers. **Ground-truth force direction is not plotted because the coordinate frames of the FBG sensors and force sensors are not calibrated.**
-  - estimated force vectors in 3D
+  - ground-truth force locations as markers, with marker size reflecting force magnitude
+  - estimated force locations as markers, with marker size reflecting force magnitude
 
-Ground-truth force direction is intentionally not plotted in 3D because the force sensor frame and the FBG-center frame are not calibrated to each other.
+Force direction is intentionally not plotted in 3D because the force sensor and FBG-center frames are not calibrated, and the estimated directions are also not sufficiently aligned.
 
 ## Notes
 - The Python script uses `scipy.optimize.minimize(..., method="L-BFGS-B")` for the bounded optimization step.
